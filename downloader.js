@@ -1,14 +1,14 @@
-const fs = require('fs')
-const ytdl = require('ytdl-core')
-const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path
-const FFmpeg = require('fluent-ffmpeg')
-FFmpeg.setFfmpegPath(ffmpegPath)
+import fs from 'fs'
+import ytdl from 'ytdl-core'
+import ffmpeg from '@ffmpeg-installer/ffmpeg'
+import FFmpeg from 'fluent-ffmpeg'
 
-const { finished } = require('stream')
-const { promisify } = require('util')
-const path = require('path')
+FFmpeg.setFfmpegPath(ffmpeg.path)
 
-const CACHE_FOLDER = './cached-songs'
+import { finished } from 'stream'
+import { promisify } from 'util'
+
+const CACHE_FOLDER = './cache/songs'
 
 const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/gi
 const cached = new Map()
@@ -30,7 +30,7 @@ fs.readdirSync(CACHE_FOLDER)
     })
 let downloading = false
 
-function prepareYoutubeSong(youtubeId) {
+export function prepareYoutubeSong(youtubeId) {
     if (cached.has(youtubeId)) {
         return true
     }
@@ -42,7 +42,7 @@ function prepareYoutubeSong(youtubeId) {
     return false
 }
 
-async function downloadYoutubeSong(youtubeId) {
+export async function downloadYoutubeSong(youtubeId) {
     downloading = true
     do {
         const url = `https://www.youtube.com/watch?v=${youtubeId}`
@@ -80,21 +80,15 @@ async function downloadYoutubeSong(youtubeId) {
     downloading = false
 }
 
-function isSongCached(youtubeId) {
+export function isSongCached(youtubeId) {
     return cached.has(youtubeId)
 }
 
-function waitTilReady(youtubeId) {
+export function waitTilReady(youtubeId) {
     if (cached.has(youtubeId)) {
         return cached.get(youtubeId)
     }
     return new Promise((resolve, reject) => {
         promises[youtubeId] = { resolve, reject }
     })
-}
-
-module.exports = {
-    isSongCached,
-    prepareYoutubeSong,
-    waitTilReady
 }

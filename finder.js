@@ -1,11 +1,11 @@
-const ytdl = require('ytdl-core')
-const fetch = require('node-fetch')
+import ytdl from 'ytdl-core'
+import fetch from 'node-fetch'
 
-async function findSongInfo(urlOrQuery) {
+export async function findSongInfo(urlOrQuery) {
     let id, url
-    if(urlOrQuery.match(/[yY][oO][uU][tT][uU][bB][eE]\./)
-    || urlOrQuery.match(/[yY][oO][uU][tT][uU]\.[bB][eE]/)) {
-        id =ytdl.getVideoID(urlOrQuery)
+    if (urlOrQuery.match(/[yY][oO][uU][tT][uU][bB][eE]\./)
+        || urlOrQuery.match(/[yY][oO][uU][tT][uU]\.[bB][eE]/)) {
+        id = ytdl.getVideoID(urlOrQuery)
         url = urlOrQuery
     } else {
         const searchUrl = `https://www.youtube.com/results?search_query=${urlOrQuery.split(/\s/).join('+')}`
@@ -25,18 +25,17 @@ async function findSongInfo(urlOrQuery) {
 
     try {
         const info = await ytdl.getInfo(url)
+        const title = info.videoDetails.title
         return {
-            title: info.videoDetails.title,
+            title,
             id,
             url,
+            // intro: chatResponse.text.replace(/"/g, ''),
             source: 'youtube'
         }
-    }catch (error) {
+    } catch (error) {
         console.log(`Error getting video info`)
         console.log(error)
     }
 }
 
-module.exports = {
-    findSongInfo
-}

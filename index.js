@@ -1,19 +1,20 @@
-// Require the necessary discord.js classes
-const { REST, Routes, Client, Events, GatewayIntentBits, Collection, SlashCommandBuilder } = require('discord.js')
-require('dotenv').config()
-const { createReadStream } = require('node:fs')
-const path = require('path')
-const fetch = require('node-fetch')
-const {
+import fetch from 'node-fetch'
+globalThis.fetch = fetch
+import { REST, Routes, Client, Events, GatewayIntentBits, Collection, SlashCommandBuilder } from 'discord.js'
+import * as dotenv from 'dotenv'
+dotenv.config()
+import { createReadStream } from 'node:fs'
+import 'libsodium-wrappers'
+import {
     joinVoiceChannel,
     createAudioResource,
     AudioPlayerStatus,
     createAudioPlayer,
-} = require('@discordjs/voice')
+} from '@discordjs/voice'
 
-const { prepareYoutubeSong, waitTilReady, isSongCached } = require('./downloader')
-const { findSongInfo } = require('./finder')
-
+import { prepareYoutubeSong, waitTilReady, isSongCached } from './downloader.js'
+import { findSongInfo } from './finder.js'
+import { getSongIntroOutro } from './host.js'
 
 const PRODUCTION = false
 
@@ -22,32 +23,65 @@ const token = process.env.DISCORD_BOT_TOKEN
 const playlist = []
 let connection, subscription
 const player = createAudioPlayer()
+let playingIntro = false
+let introFinished
+let lastSong
+let isLoading = false
 
+async function playIntroOutro(songInfo) {
+    const {introFile, introText} = await getSongIntroOutro(songInfo, lastSong)
+    lastSong = songInfo
+    const playIntroPromise = new Promise((resolve, reject) => {
+        playingIntro = true
+        introFinished = { resolve, reject }
+    })
+    player.play(createAudioResource(createReadStream(introFile)))
+    await playIntroPromise
+    return introText
+}
 
 async function playNextSong() {
     const songInfo = playlist.shift()
-    if(!songInfo) {
+    if (!songInfo) {
         console.log('The playlist is empty!')
+        await playIntroOutro()
+        return
     }
+    isLoading = true
     const { interaction, id, title } = songInfo
-    if(!isSongCached(id)) {
-        interaction.followUp({content: `Stahujem ${title}`,ephemeral: PRODUCTION})
+    if (!isSongCached(id)) {
+        interaction.followUp({ content: `Stahujem ${title}`, ephemeral: PRODUCTION })
     }
+    const introText = await playIntroOutro(songInfo)
     const songData = await waitTilReady(id)
     const resource = createAudioResource(createReadStream(songData.path))
     player.play(resource)
-    const nextSongDescription = playlist.length ? ` Potom si vypocujeme ${playlist[0].title}` : ''
-    return await interaction.followUp({ content: `Pome pome vsetci ruky hore ${songData.link}${nextSongDescription}`, ephemeral: false })
+    const nextSongDescription = playlist.length ? ` Next in queue ${playlist[0].title}` : ''
+    isLoading = false
+    return await interaction.followUp({
+        content: `${introText}\n${songData.link}${nextSongDescription}`,
+        ephemeral: false
+    })
 }
 
 
 player.on('error', error => {
     console.error(`Player status: Error: ${error.message} with resource`)
+    if(playingIntro) {
+        introFinished.reject()
+        playingIntro = false
+        return
+    }
     console.log(error)
 })
 
 player.on(AudioPlayerStatus.Idle, () => {
     console.log('Player status: Idle')
+    if(playingIntro) {
+        introFinished.resolve()
+        playingIntro = false
+        return
+    }
     playNextSong()
 })
 
@@ -68,18 +102,17 @@ player.on(AudioPlayerStatus.Buffering, () => {
 })
 
 // Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildVoiceStates] })
-
-client.commands = new Collection()
+const discordClient = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildVoiceStates] })
+discordClient.commands = new Collection()
 
 
 // When the client is ready, run this code (only once)
 // We use 'c' for the event parameter to keep it separate from the already defined 'client'
-client.once(Events.ClientReady, c => {
+discordClient.once(Events.ClientReady, async c => {
     console.log(`Ready! Logged in as ${c.user.tag}`)
 })
 
-client.on(Events.InteractionCreate, async interaction => {
+discordClient.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return
 
     //const command = interaction.client.commands.get(interaction.commandName)
@@ -123,10 +156,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
         prepareYoutubeSong(songInfo.id)
         playlist.push({ ...songInfo, interaction })
-        if(player.state.status === AudioPlayerStatus.Idle) {
+        if (player.state.status === AudioPlayerStatus.Idle && !isLoading) {
             playNextSong()
         } else {
-            interaction.followUp({content: `"${songInfo.title}" pridana do playlistu`})
+            interaction.followUp({ content: `"${songInfo.title}" pridana do playlistu` })
         }
     } catch (error) {
         console.error(error)
@@ -135,4 +168,4 @@ client.on(Events.InteractionCreate, async interaction => {
 })
 
 // Log in to Discord with your client's token
-client.login(token)
+discordClient.login(token)
