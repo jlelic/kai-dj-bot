@@ -1,7 +1,9 @@
 import fetch from 'node-fetch'
+
 globalThis.fetch = fetch
 import { REST, Routes, Client, Events, GatewayIntentBits, Collection, SlashCommandBuilder } from 'discord.js'
 import * as dotenv from 'dotenv'
+
 dotenv.config()
 import { createReadStream } from 'node:fs'
 import 'libsodium-wrappers'
@@ -9,12 +11,13 @@ import {
     joinVoiceChannel,
     createAudioResource,
     AudioPlayerStatus,
-    createAudioPlayer,
+    createAudioPlayer, VoiceConnectionStatus, EndBehaviorType,
 } from '@discordjs/voice'
 
 import { prepareYoutubeSong, waitTilReady, isSongCached } from './downloader.js'
 import { findSongInfo } from './finder.js'
-import { getSongIntroOutro } from './host.js'
+import { getSongIntroOutro, textToSpeechClient } from './host.js'
+import fs from 'fs'
 
 const PRODUCTION = false
 
@@ -29,7 +32,7 @@ let lastSong
 let isLoading = false
 
 async function playIntroOutro(songInfo) {
-    const {introFile, introText} = await getSongIntroOutro(songInfo, lastSong)
+    const { introFile, introText } = await getSongIntroOutro(songInfo, lastSong)
     lastSong = songInfo
     const playIntroPromise = new Promise((resolve, reject) => {
         playingIntro = true
@@ -67,7 +70,7 @@ async function playNextSong() {
 
 player.on('error', error => {
     console.error(`Player status: Error: ${error.message} with resource`)
-    if(playingIntro) {
+    if (playingIntro) {
         introFinished.reject()
         playingIntro = false
         return
@@ -77,7 +80,7 @@ player.on('error', error => {
 
 player.on(AudioPlayerStatus.Idle, () => {
     console.log('Player status: Idle')
-    if(playingIntro) {
+    if (playingIntro) {
         introFinished.resolve()
         playingIntro = false
         return
@@ -112,7 +115,13 @@ discordClient.once(Events.ClientReady, async c => {
     console.log(`Ready! Logged in as ${c.user.tag}`)
 })
 
+let readyNaVolby = false
+let poslednyUpdate = ''
+
+
 discordClient.on(Events.InteractionCreate, async interaction => {
+    // await executeListen(interaction)
+    // return
     if (!interaction.isChatInputCommand()) return
 
     //const command = interaction.client.commands.get(interaction.commandName)
@@ -150,6 +159,18 @@ discordClient.on(Events.InteractionCreate, async interaction => {
                 channelId: channel.id,
                 guildId: channel.guild.id,
                 adapterCreator: channel.guild.voiceAdapterCreator,
+                selfDeaf: false,
+            })
+
+            // setupListener(connection)
+
+            connection.on("stateChange", (oldState, newState) => {
+                if (
+                    oldState.status === VoiceConnectionStatus.Ready &&
+                    newState.status === VoiceConnectionStatus.Connecting
+                ) {
+                    connection.configureNetworking()
+                }
             })
             subscription = connection.subscribe(player)
         }
@@ -166,6 +187,7 @@ discordClient.on(Events.InteractionCreate, async interaction => {
         await interaction.followUp({ content: 'Niečo sa dojebalo', ephemeral: PRODUCTION })
     }
 })
+
 
 // Log in to Discord with your client's token
 discordClient.login(token)
