@@ -9,21 +9,23 @@ export default class GptClient {
         this.token = token
     }
 
-    async generate(query) {
+    async generate(query, maxLength) {
         const jsonResponse = await this.postRequest({ messages: [
                 {
                     role: 'system',
-                    content: 'Si DJ Kai, energetický DJ na rádiu Kai. Si veľmi hype, rozprávaš krátko a východoslovenským nárečím.'
+                    content: 'Si DJ Kai, energetický DJ na rádiu Kai. Si veľmi hype, rozprávaš krátko a východoslovenským nárečím. Text bude prevedený cez text-to-speech.'
                 },
                 {
                     role: 'user',
                     content: query
                 }
-            ], temperature: 0.85 })
+            ], temperature: 0.85, max_tokens: maxLength || 400 })
         return jsonResponse.choices[0].message.content
     }
 
     async postRequest(request) {
+        console.time('gpt-query')
+
         const response = await fetch(API_URL, {
             method: 'POST',
             headers: {
@@ -32,12 +34,14 @@ export default class GptClient {
             },
             body: JSON.stringify({
                 model: 'gpt-4o',//'gpt-4',
-                max_tokens: 400,
                 n: 1,
                 ...request
             })
         })
         const jsonResponse = await response.json()
+        console.timeEnd('gpt-query')
         return jsonResponse
     }
 }
+
+export const gptClient = new GptClient(process.env.OPENAI_API_KEY)

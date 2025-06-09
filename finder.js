@@ -1,4 +1,4 @@
-import ytdl from 'ytdl-core'
+import ytdl from '@distube/ytdl-core'
 import fetch from 'node-fetch'
 
 export async function findSongInfo(urlOrQuery) {
@@ -31,6 +31,7 @@ export async function findSongInfo(urlOrQuery) {
             id,
             url,
             // intro: chatResponse.text.replace(/"/g, ''),
+            type: 'song',
             source: 'youtube'
         }
     } catch (error) {

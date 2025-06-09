@@ -16,8 +16,10 @@ import {
 
 import { prepareYoutubeSong, waitTilReady, isSongCached } from './downloader.js'
 import { findSongInfo } from './finder.js'
-import { getSongIntroOutro, textToSpeechClient } from './host.js'
+import { getSongIntroOutro } from './host.js'
 import fs from 'fs'
+import { answerQuestion } from './consultant/consultant.js'
+import { textToSpeech } from './text-to-speech.js'
 
 const PRODUCTION = false
 
@@ -31,16 +33,22 @@ let introFinished
 let lastSong
 let isLoading = false
 
-async function playIntroOutro(songInfo) {
-    const { introFile, introText } = await getSongIntroOutro(songInfo, lastSong)
-    lastSong = songInfo
-    const playIntroPromise = new Promise((resolve, reject) => {
+let channel = null
+
+async function playTextToSpeech(file) {
+    const playTtsPromise = new Promise((resolve, reject) => {
         playingIntro = true
         introFinished = { resolve, reject }
     })
-    player.play(createAudioResource(createReadStream(introFile)))
-    await playIntroPromise
-    return introText
+    player.play(createAudioResource(createReadStream(file)))
+    await playTtsPromise
+}
+
+async function playIntroOutro(songInfo) {
+    const { file, text } = await getSongIntroOutro(songInfo, lastSong, channel)
+    lastSong = songInfo
+    await playTextToSpeech(file)
+    return text
 }
 
 async function playNextSong() {
@@ -50,21 +58,33 @@ async function playNextSong() {
         await playIntroOutro()
         return
     }
-    isLoading = true
-    const { interaction, id, title } = songInfo
-    if (!isSongCached(id)) {
-        interaction.followUp({ content: `Stahujem ${title}`, ephemeral: PRODUCTION })
+    if (songInfo.type === 'song') {
+        isLoading = true
+        const { interaction, id, title } = songInfo
+        if (!isSongCached(id)) {
+            interaction.followUp({ content: `Stahujem ${title}`, ephemeral: PRODUCTION })
+        }
+        const introText = await playIntroOutro(songInfo)
+        const songData = await waitTilReady(id)
+        const resource = createAudioResource(createReadStream(songData.path))
+        player.play(resource)
+        const nextSongDescription = playlist.length ? ` Next in queue ${playlist[0].title}` : ''
+        isLoading = false
+        return await interaction.followUp({
+            content: `${introText}\n${songData.link}${nextSongDescription}`,
+            ephemeral: false
+        })
+    } else if (songInfo.type === 'question') {
+        lastSong = null
+        const { answer, interaction } = songInfo
+        const { file } = await textToSpeech(answer)
+        await playTextToSpeech(file)
+        return await interaction.followUp({
+            content: answer,
+            ephemeral: false
+        })
+
     }
-    const introText = await playIntroOutro(songInfo)
-    const songData = await waitTilReady(id)
-    const resource = createAudioResource(createReadStream(songData.path))
-    player.play(resource)
-    const nextSongDescription = playlist.length ? ` Next in queue ${playlist[0].title}` : ''
-    isLoading = false
-    return await interaction.followUp({
-        content: `${introText}\n${songData.link}${nextSongDescription}`,
-        ephemeral: false
-    })
 }
 
 
@@ -138,7 +158,7 @@ discordClient.on(Events.InteractionCreate, async interaction => {
         // ).find(
         //     c => c.isVoiceBased() && c.members.has(interaction.member.user.id)
         // )
-        const channel = interaction.member?.voice.channel
+        channel = interaction.member?.voice.channel
         if (!channel) {
             return await interaction.reply({ content: 'Nie si na voice :reto:', ephemeral: PRODUCTION })
         }
@@ -150,9 +170,6 @@ discordClient.on(Events.InteractionCreate, async interaction => {
 
         const userInput = interaction.options.data[0].value
         await interaction.deferReply({ ephemeral: PRODUCTION })
-        const songInfo = await findSongInfo(userInput)
-
-        console.log(`Found video: "${songInfo.title}" at ${songInfo.url}, joining voice`)
 
         if (!connection) {
             connection = joinVoiceChannel({
@@ -175,12 +192,32 @@ discordClient.on(Events.InteractionCreate, async interaction => {
             subscription = connection.subscribe(player)
         }
 
-        prepareYoutubeSong(songInfo.id)
-        playlist.push({ ...songInfo, interaction })
-        if (player.state.status === AudioPlayerStatus.Idle && !isLoading) {
-            playNextSong()
+        if (interaction.commandName === "hraj") {
+            const songInfo = await findSongInfo(userInput)
+
+            console.log(`Found video: "${songInfo.title}" at ${songInfo.url}, joining voice`)
+
+
+            prepareYoutubeSong(songInfo.id)
+            playlist.push({ ...songInfo, interaction })
+            if (player.state.status === AudioPlayerStatus.Idle && !isLoading) {
+                playNextSong()
+            } else {
+                interaction.followUp({ content: `"${songInfo.title}" pridana do playlistu` })
+            }
+        } else if (interaction.commandName === "otazka") {
+            if (userInput.length > 200) {
+                interaction.followUp({ content: "Too long; didn't read" })
+                return
+            }
+            interaction.followUp({ content: "Musím porozmýšľať..." })
+            const answer = await answerQuestion(userInput, interaction.member.nickname ?? interaction.user.username)
+            playlist.push({ type: 'question', answer, interaction })
+            if (player.state.status === AudioPlayerStatus.Idle && !isLoading) {
+                playNextSong()
+            }
         } else {
-            interaction.followUp({ content: `"${songInfo.title}" pridana do playlistu` })
+            interaction.followUp({ content: `Neviem čo chceš odo mňa: "${interaction.commandName}"?` })
         }
     } catch (error) {
         console.error(error)

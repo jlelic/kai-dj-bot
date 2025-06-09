@@ -1,5 +1,5 @@
 import fs from 'fs'
-import ytdl from 'ytdl-core'
+import ytdl from '@distube/ytdl-core'
 import ffmpeg from '@ffmpeg-installer/ffmpeg'
 import FFmpeg from 'fluent-ffmpeg'
 
